@@ -6,6 +6,8 @@ import random
 import re
 import ast
 import sys
+import pprint
+from statistics import mean, median
 
 def ascii_intro():
     print("")
@@ -43,9 +45,9 @@ class CrapsMachine:
         if bet_dict:
             for name, value in bet_dict.items():
                 if (self.state['Point'] == 0 and name not in self.legalComeoutBets):
-                    raise Exception('Bet ' + name + 'is not legal during the comeout roll')
+                    raise Exception('Bet ' + name + ' is not legal during the comeout roll')
                 elif (self.state['Point'] != 0 and name not in self.legalPointBets):
-                    raise Exception('Bet ' + name + 'is not legal during the point rolls')
+                    raise Exception('Bet ' + name + ' is not legal during the point rolls')
                 
                 self.bets[name] += value
 
@@ -140,7 +142,6 @@ class CrapsMachine:
             # Clear the one time bets
             self.clear([x for x in self.oneTimeBets if x not in one_time_keepers])
 
-            self.results.append(total_payout)
             return total_payout
         
         else:
@@ -209,7 +210,6 @@ class CrapsMachine:
             
             # Clear the one time bets
             self.clear([x for x in self.oneTimeBets if x not in one_time_keepers])
-            self.results.append(total_payout)
             return total_payout
 
     def __init__(self):
@@ -259,8 +259,8 @@ class CrapsMachine:
             'Field 12': 2,
             'Place Win 4': 9/5,
             'Place Win 5': 7/5,
-            'Place Win 6': 6/5,
-            'Place Win 8': 6/5,
+            'Place Win 6': 7/6,
+            'Place Win 8': 7/6,
             'Place Win 9': 7/5,
             'Place Win 10': 9/5,
             'Hard 4': 7/1,
@@ -307,27 +307,92 @@ class CrapsMachine:
         ]
         self.legalComeoutBets = ['Pass', 'Dont Pass'] + self.oneTimeBets
         self.legalPointBets = ['Pass Odds', 'Dont Pass Odds'] + self.oneTimeBets + self.placeBets
-        self.results = []
 
 class Algorithms:
     
     @staticmethod
-    def procrastinate(machine, bankroll, rolls):
-        my_bet = {}
-        for i in range(rolls):
-            if machine.state['Point'] == 0:
-                bankroll -= 5
-                my_bet['Dont Pass'] = 5
-                machine.bet(my_bet)
-            
-            bankroll += machine.roll()
-            machine.clear(['Dont Pass'])
+    def procrastinate(machine, bankroll=500, rolls=200):
 
-        return bankroll
+        results = []
+        
+        def bet(name, amount):
+            nonlocal bankroll
+            nonlocal machine
+
+            my_bet = dict()
+            bankroll -= amount
+
+            if bankroll <= 0:
+                raise Exception('Out of money')
+
+            my_bet[name] = amount
+            machine.bet(my_bet)
+
+        try:
+            for i in range(rolls):
+                # If we are on the comeout roll
+                if machine.state['Point'] == 0:
+                    # Play don't pass if we don't already have a bet there
+                    if not machine.bets['Dont Pass']:
+                        bet('Dont Pass', 5)
+                else:
+                    # Play max odds on don't pass
+                    if not machine.bets['Dont Pass Odds']:
+                        if machine.state['Point'] == 4 or machine.state['Point'] == 10:
+                            bet('Dont Pass Odds', 30)
+                        elif machine.state['Point'] == 5 or machine.state['Point'] == 9:
+                            bet('Dont Pass Odds', 30)
+                        elif machine.state['Point'] == 6 or machine.state['Point'] == 8:
+                            bet('Dont Pass Odds', 30)
+
+                    # Put down place bets
+                    if not machine.bets['Place Win 5']:
+                        bet('Place Win 5', 5)
+                    else:
+                        # Up a unit on 5 if last roll was 5
+                        if machine.state['Last Roll'] == 5:
+                            bet('Place Win 5', 5)
+                    if not machine.bets['Place Win 6']:
+                        bet('Place Win 6', 6)
+                    else:
+                        # Up a unit on 6 if last roll was 6
+                        if machine.state['Last Roll'] == 6:
+                            bet('Place Win 6', 6)
+                    if not machine.bets['Place Win 8']:
+                        bet('Place Win 8', 6)
+                    else:
+                        # Up a unit on 8 if last roll was 8
+                        if machine.state['Last Roll'] == 8:
+                            bet('Place Win 8', 6)
+                    if not machine.bets['Place Win 9']:
+                        bet('Place Win 9', 5)
+                    else:
+                        # Up a unit on 9 if last roll was 9
+                        if machine.state['Last Roll'] == 9:
+                            bet('Place Win 9', 5)
+
+                win = machine.roll()
+                bankroll += win
+
+                results.append({'Won': win, 'Money on Table': sum(machine.bets.values()), 'Bankroll': bankroll, 'Last Roll': machine.state['Last Roll']})
+        except Exception:
+            pass
+        
+        stats = {
+            'Max Bankroll': max([x['Bankroll'] for x in results]),
+            'Min Bankroll': min([x['Bankroll'] for x in results]),
+            'Average Bankroll': mean([x['Bankroll'] for x in results]),
+            'Median Bankroll': median([x['Bankroll'] for x in results]),
+            'Max Bet on table': max([x['Money on Table'] for x in results]),
+            'Average bet on table': mean([x['Money on Table'] for x in results]),
+        }
+
+        return (results,stats)
 
 if __name__ == "__main__":
     ascii_intro()
     cm = CrapsMachine()
+    avg_stats = []
 
     # Various algorithms
     alg_names = ['Scott procrastinates losing while having fun']
@@ -355,9 +420,13 @@ if __name__ == "__main__":
         except:
             rolls = 200
 
-        print(alg_mapping[alg_num](cm, bankroll, rolls))
-        print(cm.results)
+        for i in range(500):
+            results, stats = alg_mapping[alg_num](cm, bankroll, rolls)
+            avg_stats.append(stats)
 
+        pp = pprint.PrettyPrinter()
+        final_results = {'Average Bankroll': mean([x['Average Bankroll'] for x in avg_stats])}
+        pp.pprint(final_results)
 
     except KeyboardInterrupt:
         sys.exit(0)
